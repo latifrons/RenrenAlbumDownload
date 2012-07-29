@@ -168,11 +168,20 @@ def safe_raw_input(prompt=None):
 		return raw_input(prompt)
 
 if __name__ == '__main__':
+	print ('''
+	=================================================
+	= Renren.com Album Bulk Downloader Ver 0.1 Beta =
+	=               Author: latifrons               =
+	=           www.renren.com/230654960            =
+	=            latifrons88@gmail.com              =
+	=================================================
+	''')
 	success = False
 	while not success:
-		username = safe_raw_input('Username:')
-		password = getpass.getpass('Password:')
 		try:
+			username = safe_raw_input('Your RenRen Account (Email):')
+			password = getpass.getpass('Your RenRen Password:')
+
 			success = login(username,password,None)
 			if success:
 				print "Login succeeded."
