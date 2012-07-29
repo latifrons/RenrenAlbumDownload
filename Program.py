@@ -1,0 +1,191 @@
+"""
+Created on Jul 17, 2012
+
+@author: latifrons88@gmail.com
+"""
+import cookielib
+import os
+import urllib
+import urllib2
+import json
+import uuid
+import renren
+import sys
+import getpass
+
+_cookieJar = cookielib.CookieJar()
+_homeURL = 'http://www.renren.com/'
+_loginURL = 'http://www.renren.com/ajaxLogin/login'
+_pingURL = 'http://s.renren.com/ping?v=20110919'
+
+_uaHeaders = [('User-agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) AppleWebKit/535.12 (KHTML, like Gecko) Chrome/18.0.966.0 Safari/535.12')]
+
+_normalOpener = urllib2.build_opener(urllib2.HTTPCookieProcessor(_cookieJar))
+_normalOpener.addheaders = _uaHeaders
+
+def touch(url):
+	req = urllib2.Request(url, None)
+	resp = _normalOpener.open(req,timeout=5)
+	resp.close()
+	
+def fetch(url,encoding='UTF-8'):
+	req = urllib2.Request(url,None)
+	resp = _normalOpener.open(req,timeout=5)
+	s = resp.read().decode(encoding)
+	resp.close()
+	return s
+
+def buildSimpleCookie(name,value,domain,path):
+	ck = cookielib.Cookie(version=0, name=name, value = value, 
+						port=None, port_specified=False, 
+						domain=domain, domain_specified=True, domain_initial_dot=True, 
+						path=path, path_specified=True, secure=False, expires=None, discard=True, 
+						comment=None, comment_url=None, rest={'HttpOnly': None}, rfc2109=False)
+	return ck
+
+def login(email,password,captcha):
+	#visit home to get anonymous id
+	touch(_homeURL)	
+	
+	#ping twice to get ick id
+	touch(_pingURL)
+	
+	#add random uuid to cookie
+	_cookieJar.set_cookie(buildSimpleCookie('ick',str(uuid.uuid4()),'.renren.com','/'))
+	touch(_pingURL)
+		
+	#ajax login
+	postBodyMap = {'email':email,'password':password,'icode':captcha,
+			'origURL':'http://www.renren.com/home',
+			'domain':'renren.com','key_id':1,'captcha_type':'web_login'}
+	postBody = urllib.urlencode(postBodyMap)
+	
+	req = urllib2.Request(_loginURL, postBody)
+	
+	resp = _normalOpener.open(req,timeout =5)
+	
+	loginResult = resp.read()
+	#print loginResult
+	resp.close()
+	
+	#goto homeUrl
+	js = json.JSONDecoder().decode(loginResult)
+	success= js['code']
+	homeURL = js['homeUrl']
+	
+	touch(homeURL)
+
+	return success
+
+def save(url,filename,folder):
+	path = os.path.join(folder,filename)
+	pic = None
+	f= None
+	if os.path.exists(path):
+		print url, 'skip'
+		return True
+	try:
+		pic = urllib2.urlopen(url,timeout=5)
+		print url, pic.getcode()
+		f = open(path,'wb')
+		f.write(pic.read())
+		return True
+	except Exception as e:
+		print url, e
+		return False
+	finally:
+		if pic is not None:
+			pic.close()
+		if f is not None:
+			f.close()
+
+
+def downloadAlbum(album):
+	html = fetch(album.albumURL)
+	b = renren.getPhotos(album,html)
+	newAlbum = renren.getAlbumInfo(album.albumURL,html)
+	album.albumName = newAlbum.albumName
+
+	#username_230654960/albumname_id/photoid.type
+	path = ''.join([album.ownerName,'_',album.ownerID,'/',album.albumName,'_',album.albumID,'/'])
+	if not os.path.exists(path):
+		os.makedirs(path)
+
+	success = True
+	for photo in b:
+		type = photo.photoURL[photo.photoURL.rfind('.'):]
+		success &= save(photo.photoURL,''.join([photo.photoID,type]),path)
+	return success
+
+def round():
+	#get user request
+	url = safe_raw_input('URL:')
+	if url.lower() == 'quit' or url.lower() =='q':
+		return False
+	if url == '':
+		return True
+	albums = []
+	fixedURL = renren.getAlbumListURL(url)
+	if fixedURL is not None:
+		#fetch albums html
+		html = fetch(fixedURL)
+		albums = renren.getAlbums(html)
+	else:
+		fixedURL = renren.getPhotoListURL(url)
+		if fixedURL is not None:
+			html = fetch(fixedURL)
+			album = renren.getAlbumInfo(fixedURL,html)
+			albums.append(album)
+
+	#download each album
+	ac = safe_raw_input('You are about to download %d albums from %s (%s). Press Y to continue or others to abort.'
+	%(len(albums),albums[0].ownerName,albums[0].ownerID))
+	success = True
+	if ac.lower() == 'y':
+		for album in albums:
+			print 'Downloading %s (%d)' % (encode(album.albumName),album.picCount)
+			try:
+				success &= downloadAlbum(album)
+			except Exception as e:
+				print e
+				success = False
+		if success:
+			print 'All %d albums from %s (%s) downloaded successfully.' \
+				% (len(albums),encode(albums[0].ownerName),albums[0].ownerID)
+		else:
+			print 'Some photos were not downloaded properly. Please recheck.'
+	return True
+
+def encode(s,encoding=sys.stdout.encoding):
+	if s is not None:
+		s = s.encode(encoding,'ignore')
+	return s
+
+def safe_raw_input(prompt=None):
+	if prompt is not None:
+		prompt = prompt.encode(sys.stdout.encoding,'ignore')
+		return raw_input(prompt)
+
+if __name__ == '__main__':
+	success = False
+	while not success:
+		username = safe_raw_input('Username:')
+		password = getpass.getpass('Password:')
+		try:
+			success = login(username,password,None)
+			if success:
+				print "Login succeeded."
+			else:
+				print "Login failed."
+		except Exception as e:
+			print "Login failed. ",e
+
+
+	c = True
+	while c:
+		try:
+			c = round()
+		except Exception as e:
+			print 'Unknown Exception(Network? Permission?):',e
+
+	
