@@ -120,7 +120,7 @@ def downloadAlbum(album):
 
 def round():
 	#get user request
-	url = safe_raw_input('URL:')
+	url = safe_raw_input('URL,UID or quit(q):')
 	if url.lower() == 'quit' or url.lower() =='q':
 		return False
 	if url == '':
