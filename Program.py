@@ -18,7 +18,8 @@ _cookieJar = cookielib.CookieJar()
 _homeURL = 'http://www.renren.com/'
 _loginURL = 'http://www.renren.com/ajaxLogin/login'
 _pingURL = 'http://s.renren.com/ping?v=20110919'
-
+_captchaURL = 'http://icode.renren.com/getcode.do?t=web_login&rnd=331'
+_showcaptchaURL = 'http://www.renren.com/ajax/ShowCaptcha'
 _uaHeaders = [('User-agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) AppleWebKit/535.12 (KHTML, like Gecko) Chrome/18.0.966.0 Safari/535.12')]
 
 _normalOpener = urllib2.build_opener(urllib2.HTTPCookieProcessor(_cookieJar))
@@ -28,7 +29,7 @@ def touch(url):
 	req = urllib2.Request(url, None)
 	resp = _normalOpener.open(req,timeout=5)
 	resp.close()
-	
+
 def fetch(url,encoding='UTF-8'):
 	req = urllib2.Request(url,None)
 	resp = _normalOpener.open(req,timeout=5)
@@ -36,53 +37,51 @@ def fetch(url,encoding='UTF-8'):
 	resp.close()
 	return s
 
+def fetchBin(url,filename,folder):
+	req = urllib2.Request(url,None)
+	resp = _normalOpener.open(req,timeout =5)
+	path = os.path.join(folder,filename)
+	f = open(path,'wb')
+	f.write(resp.read())
+	resp.close()
+
 def buildSimpleCookie(name,value,domain,path):
-	ck = cookielib.Cookie(version=0, name=name, value = value, 
-						port=None, port_specified=False, 
-						domain=domain, domain_specified=True, domain_initial_dot=True, 
-						path=path, path_specified=True, secure=False, expires=None, discard=True, 
+	ck = cookielib.Cookie(version=0, name=name, value = value,
+						port=None, port_specified=False,
+						domain=domain, domain_specified=True, domain_initial_dot=True,
+						path=path, path_specified=True, secure=False, expires=None, discard=True,
 						comment=None, comment_url=None, rest={'HttpOnly': None}, rfc2109=False)
 	return ck
 
 def login(email,password,captcha):
-	#visit home to get anonymous id
-	touch(_homeURL)	
-	
-	#ping twice to get ick id
-	touch(_pingURL)
-	
-	#add random uuid to cookie
-	_cookieJar.set_cookie(buildSimpleCookie('ick',str(uuid.uuid4()),'.renren.com','/'))
-	touch(_pingURL)
-		
 	#ajax login
 	postBodyMap = {'email':email,'password':password,'icode':captcha,
 			'origURL':'http://www.renren.com/home',
-			'domain':'renren.com','key_id':1,'captcha_type':'web_login'}
+			'domain':'renren.com','key_id':1,'captcha_type':'web_login','_rtk':'ec5d8045'}
 	postBody = urllib.urlencode(postBodyMap)
-	
+
 	req = urllib2.Request(_loginURL, postBody)
-	
+
 	resp = _normalOpener.open(req,timeout =5)
-	
+
 	loginResult = resp.read()
-	#print loginResult
+	print loginResult.decode('UTF-8')
 	resp.close()
-	
+
 	#goto homeUrl
 	js = json.JSONDecoder().decode(loginResult)
 	success= js['code']
 	homeURL = js['homeUrl']
-	
+
 	touch(homeURL)
 
 	return success
 
-def save(url,filename,folder):
+def save(url,filename,folder,overwrite):
 	path = os.path.join(folder,filename)
 	pic = None
 	f= None
-	if os.path.exists(path):
+	if not overwrite and os.path.exists(path):
 		print url, 'skip'
 		return True
 	try:
@@ -115,7 +114,7 @@ def downloadAlbum(album):
 	success = True
 	for photo in b:
 		type = photo.photoURL[photo.photoURL.rfind('.'):]
-		success &= save(photo.photoURL,''.join([photo.photoID,type]),path)
+		success &= save(photo.photoURL,''.join([photo.photoID,type]),path,False)
 	return success
 
 def round():
@@ -182,7 +181,36 @@ if __name__ == '__main__':
 			username = safe_raw_input('Your RenRen Account (Email):')
 			password = getpass.getpass('Your RenRen Password:')
 
-			success = login(username,password,None)
+			#visit home to get anonymous id
+			touch(_homeURL)
+
+			#ping twice to get ick id
+			touch(_pingURL)
+
+			#add random uuid to cookie
+			_cookieJar.set_cookie(buildSimpleCookie('ick',str(uuid.uuid4()),'.renren.com','/'))
+			touch(_pingURL)
+
+			#ajax captcha
+			fetchBin(_captchaURL,'captcha.jpg','')
+			postBodyMap = {'email':username,'password':'','icode':'',
+			               'origURL':'http://www.renren.com/home',
+			               'domain':'renren.com','key_id':1,'captcha_type':'web_login','_rtk':'ec5d8045'}
+			postBody = urllib.urlencode(postBodyMap)
+
+			req = urllib2.Request(_showcaptchaURL, postBody)
+
+			resp = _normalOpener.open(req,timeout =5)
+
+			result = resp.read()
+			print result.decode('UTF-8')
+			resp.close()
+
+
+
+			captcha = safe_raw_input('Captcha(check your captcha.jpg):')
+
+			success = login(username,password,captcha)
 			if success:
 				print "Login succeeded."
 			else:
@@ -198,4 +226,3 @@ if __name__ == '__main__':
 		except Exception as e:
 			print 'Unknown Exception(Network? Permission?):',e
 
-	
